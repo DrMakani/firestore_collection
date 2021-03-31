@@ -60,6 +60,9 @@ class FirestoreCollection {
   bool get fetching => _fetching;
   bool _initialized = false;
   bool get initialized => _initialized;
+  // DrMakani: edited to see if collection has reached the end
+  bool _reachedEnd = false;
+  bool get reachedEnd => _reachedEnd;
 
   // documents
   List<DocumentSnapshot> _docs;
@@ -140,6 +143,7 @@ class FirestoreCollection {
     }
     if (_endOfCollectionMap[_q.hashCode] ?? false) {
       log('can not fetch anymore. end of the collection');
+      _reachedEnd = true;
       return;
     }
     _fetching = true;
@@ -181,6 +185,7 @@ class FirestoreCollection {
     _fetching = false;
     if (fetchedCount < offset) {
       log('reached end of the collection');
+      _reachedEnd = true;
       _endOfCollectionMap[_q.hashCode] = true;
     }
   }
