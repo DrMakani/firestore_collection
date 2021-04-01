@@ -97,7 +97,8 @@ class FirestoreCollection {
     _init();
     _endOfCollectionMap.clear();
     if (notifyWithEmptyList) _streamController.add(documents);
-    await nextPage();
+    // DrMakani: workaround to force refetch from server when calling restart
+    await nextPage(forceServer: true);
     collectionListener();
   }
 
@@ -126,17 +127,17 @@ class FirestoreCollection {
     onDocumentChanged?.call(document);
   }
 
-  Future<void> nextPage() async {
+  Future<void> nextPage({bool forceServer = false}) async {
     if (queryList?.isEmpty ?? true) {
-      await _nextPageInternal(query);
+      await _nextPageInternal(query, forceServer: forceServer);
       return;
     }
     for (var q in queryList) {
-      await _nextPageInternal(q);
+      await _nextPageInternal(q, forceServer: forceServer);
     }
   }
 
-  Future<void> _nextPageInternal(Query _q) async {
+  Future<void> _nextPageInternal(Query _q, {bool forceServer = false}) async {
     if (_fetching) {
       log('already fetching');
       return;
@@ -148,7 +149,7 @@ class FirestoreCollection {
     }
     _fetching = true;
     int fetchedCount = 0;
-    if (serverOnly) {
+    if (serverOnly || forceServer) {
       QuerySnapshot serverQS = await _q
           .where(queryOrder.orderField, isLessThan: _lastFetched())
           .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
