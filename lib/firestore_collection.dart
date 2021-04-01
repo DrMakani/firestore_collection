@@ -88,6 +88,7 @@ class FirestoreCollection {
 
   void _init() {
     _docs = [];
+    _reachedEnd = false;
     if (queryOrder.hasDisplayCompare) {
       _displayDocs = [];
     }
@@ -96,6 +97,8 @@ class FirestoreCollection {
   Future<void> restart({bool notifyWithEmptyList = false}) async {
     _init();
     _endOfCollectionMap.clear();
+    await _streamController?.close();
+    _streamController = BehaviorSubject();
     if (notifyWithEmptyList) _streamController.add(documents);
     // DrMakani: workaround to force refetch from server when calling restart
     await nextPage(forceServer: true);
