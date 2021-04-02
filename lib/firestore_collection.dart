@@ -205,35 +205,58 @@ class FirestoreCollection {
       // DrMakani: check if next Page can be read out of cache (relevant only for non-live collections)
       // not very elegant yet because for every new page 1 additional read for comparison will be done
       if (!live && _forceServer) {
-        // TODO: neue Idee: so lange server seitig laden bis cache.first < lastfetched
+//         // TODO: neue Idee: so lange server seitig laden bis cache.first < lastfetched
+//         QuerySnapshot cacheQS = await _q
+//             .where(queryOrder.orderField, isLessThan: _lastFetched())
+//             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+//             .limit(offset)
+//             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+//             .get(GetOptions(source: Source.cache));
+
+// TODO: neue idee: hier greater than und dnn das local neueste
+//         QuerySnapshot serverQS = await _q
+//             .where(queryOrder.orderField, isLessThan: _lastFetched())
+//             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+//             .limit(offset)
+//             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+//             .get(GetOptions(source: Source.server));
+//         fetchedCount += serverQS.docs.length;
+//         log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
+
+//         log('******** first Local timestamp: ${(!cacheQS?.docs?.isEmpty && cacheQS?.docs?.length > 0) ? cacheQS?.docs?.first?.data()[queryOrder.orderField] : "none"}');
+//         log('******** last Server timestamp: ${serverQS.docs.last.data()[queryOrder.orderField]}');
+
+//         if (serverQS?.docs?.length > 0 &&
+//             !cacheQS?.docs?.isEmpty &&
+//             cacheQS?.docs?.length > 0 &&
+//             cacheQS?.docs?.first?.data()[queryOrder.orderField] >=
+//                 serverQS.docs.last.data()[queryOrder.orderField]) {
+//           _forceServer = false;
+//         }
+//         insertPage(serverQS);
         QuerySnapshot cacheQS = await _q
-            .where(queryOrder.orderField, isLessThan: _lastFetched())
-            .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-            .limit(offset)
+            .limit(1)
             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
             .get(GetOptions(source: Source.cache));
 
         QuerySnapshot serverQS = await _q
-            .where(queryOrder.orderField, isLessThan: _lastFetched())
-            .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+            .where(queryOrder.orderField, isGreaterThan: _newestFetched())
             .limit(offset)
             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
             .get(GetOptions(source: Source.server));
         fetchedCount += serverQS.docs.length;
         log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
-
-        log('******** first Local timestamp: ${(!cacheQS?.docs?.isEmpty && cacheQS?.docs?.length > 0) ? cacheQS?.docs?.first?.data()[queryOrder.orderField] : "none"}');
-        log('******** last Server timestamp: ${serverQS.docs.last.data()[queryOrder.orderField]}');
-
-        if (serverQS?.docs?.length > 0 &&
-            !cacheQS?.docs?.isEmpty &&
-            cacheQS?.docs?.length > 0 &&
-            cacheQS?.docs?.first?.data()[queryOrder.orderField] >=
-                serverQS.docs.last.data()[queryOrder.orderField]) {
-          _forceServer = false;
-        }
         insertPage(serverQS);
 
+        if (fetchedCount != offset) {
+          QuerySnapshot cacheQS = await _q
+              .limit(offset - fetchedCount)
+              .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+              .get(GetOptions(source: Source.cache));
+          fetchedCount += cacheQS.docs.length;
+          log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
+          insertPage(cacheQS);
+        }
         // QuerySnapshot tempQSLocalNext = await _q
         //     .where(queryOrder.orderField, isLessThan: _lastFetched())
         //     .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
