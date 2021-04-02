@@ -104,14 +104,16 @@ class FirestoreCollection {
     // _streamController = BehaviorSubject();
     if (notifyWithEmptyList) _streamController.add(documents);
     // DrMakani: workaround to force refetch from server when calling restart
+    if (!_restarting) {
+      QuerySnapshot cacheQS = await query
+          .limit(1)
+          .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+          .get(GetOptions(source: Source.cache));
+      _newestFetchWhenRestarted = cacheQS.docs.isNotEmpty
+          ? cacheQS?.docs?.first?.data()[queryOrder.orderField]
+          : null;
+    }
     _restarting = true;
-    QuerySnapshot cacheQS = await query
-        .limit(1)
-        .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        .get(GetOptions(source: Source.cache));
-    _newestFetchWhenRestarted = cacheQS.docs.isNotEmpty
-        ? cacheQS?.docs?.first?.data()[queryOrder.orderField]
-        : null;
     await nextPage();
     collectionListener();
   }
