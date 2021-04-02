@@ -109,7 +109,9 @@ class FirestoreCollection {
         .limit(1)
         .orderBy(queryOrder.orderField, descending: queryOrder.descending)
         .get(GetOptions(source: Source.cache));
-    _newestFetchWhenRestarted = _newestFetched();
+    _newestFetchWhenRestarted = cacheQS.docs.isNotEmpty
+        ? cacheQS?.docs?.first?.data()[queryOrder.orderField]
+        : null;
     await nextPage();
     collectionListener();
   }
@@ -177,7 +179,7 @@ class FirestoreCollection {
         QuerySnapshot serverQS = await _q
             .where(queryOrder.orderField, isLessThan: _lastFetched())
             .where(queryOrder.orderField,
-                isGreaterThan: _newestFetchWhenRestarted())
+                isGreaterThan: _newestFetchWhenRestarted)
             .limit(offset)
             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
             .get(GetOptions(source: Source.server));
