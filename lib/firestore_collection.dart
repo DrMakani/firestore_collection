@@ -104,7 +104,7 @@ class FirestoreCollection {
     // _streamController = BehaviorSubject();
     if (notifyWithEmptyList) _streamController.add(documents);
     // DrMakani: workaround to force refetch from server when calling restart
-    if (!_restarting) {
+    if (_newestFetchWhenRestarted == null) {
       QuerySnapshot cacheQS = await query
           .limit(1)
           .orderBy(queryOrder.orderField, descending: queryOrder.descending)
@@ -201,6 +201,7 @@ class FirestoreCollection {
           log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
           insertPage(cacheQS);
           _restarting = false;
+          _newestFetchWhenRestarted = null;
         }
         // end DrMakani
 
