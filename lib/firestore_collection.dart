@@ -179,8 +179,9 @@ class FirestoreCollection {
         fetchedCount += serverQS.docs.length;
         log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
 
-        if (_docs.first.data()[queryOrder.orderField] >
-            serverQS.docs.last.data()[queryOrder.orderField]) {
+        if (serverQS.docs.length > 0 &&
+            _newestFetched() >
+                serverQS.docs.last.data()[queryOrder.orderField]) {
           _forceServer = false;
         }
         insertPage(serverQS);
