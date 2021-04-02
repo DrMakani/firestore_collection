@@ -99,13 +99,20 @@ class FirestoreCollection {
   Future<void> restart({bool notifyWithEmptyList = false}) async {
     _init();
     _endOfCollectionMap.clear();
-    await _streamController?.close();
-    _streamController = BehaviorSubject();
+    // await _streamController?.close();
+    // _streamController = BehaviorSubject();
     if (notifyWithEmptyList) _streamController.add(documents);
     // DrMakani: workaround to force refetch from server when calling restart
     _forceServer = true;
     await nextPage();
     collectionListener();
+  }
+
+  Future<void> reloadFirstPage() async {
+    _reachedEnd = false;
+    _endOfCollectionMap.clear();
+    _forceServer = true;
+    await _serverReloadFirstPage(query);
   }
 
   Future<void> dispose() async {
@@ -143,6 +150,35 @@ class FirestoreCollection {
     }
   }
 
+  Future<void> _serverReloadFirstPage(Query _q) async {
+    if (_fetching) {
+      log('already fetching');
+      return;
+    }
+    if (_endOfCollectionMap[_q.hashCode] ?? false) {
+      log('can not fetch anymore. end of the collection');
+      _reachedEnd = true;
+      return;
+    }
+    _fetching = true;
+    int fetchedCount = 0;
+
+    QuerySnapshot serverQS = await _q
+        .where(queryOrder.orderField,
+            isGreaterThan:
+                !_docs.isEmpty ? _docs.first.data()[queryOrder.orderField] : 0)
+        .limit(offset - fetchedCount)
+        .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+        .get(GetOptions(source: Source.server));
+    fetchedCount += serverQS.docs.length;
+    log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [only-server]');
+    log('lastFetched: ${!_docs.isEmpty ? _docs.first.data()[queryOrder.orderField] : ""} ');
+    insertPage(serverQS);
+
+    _initialized = true;
+    _fetching = false;
+  }
+
   Future<void> _nextPageInternal(Query _q) async {
     if (_fetching) {
       log('already fetching');
@@ -170,6 +206,13 @@ class FirestoreCollection {
       // not very elegant yet because for every new page 1 additional read for comparison will be done
       if (!live && _forceServer) {
         // TODO: neue Idee: so lange server seitig laden bis cache.first < lastfetched
+        QuerySnapshot cacheQS = await _q
+            .where(queryOrder.orderField, isLessThan: _lastFetched())
+            .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+            .limit(offset)
+            .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+            .get(GetOptions(source: Source.cache));
+
         QuerySnapshot serverQS = await _q
             .where(queryOrder.orderField, isLessThan: _lastFetched())
             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
@@ -179,8 +222,13 @@ class FirestoreCollection {
         fetchedCount += serverQS.docs.length;
         log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
 
-        if (serverQS.docs.length > 0 &&
-            _newestFetched() >
+        log('******** first Local timestamp: ${(!cacheQS?.docs?.isEmpty && cacheQS?.docs?.length > 0) ? cacheQS?.docs?.first?.data()[queryOrder.orderField] : "none"}');
+        log('******** last Server timestamp: ${serverQS.docs.last.data()[queryOrder.orderField]}');
+
+        if (serverQS?.docs?.length > 0 &&
+            !cacheQS?.docs?.isEmpty &&
+            cacheQS?.docs?.length > 0 &&
+            cacheQS?.docs?.first?.data()[queryOrder.orderField] >=
                 serverQS.docs.last.data()[queryOrder.orderField]) {
           _forceServer = false;
         }
