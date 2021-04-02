@@ -63,6 +63,8 @@ class FirestoreCollection {
   // DrMakani: edited to see if collection has reached the end
   bool _reachedEnd = false;
   bool get reachedEnd => _reachedEnd;
+  // DrMakani: for correct pagination of non-live collections
+  bool _forceServer = false;
 
   // documents
   List<DocumentSnapshot> _docs;
@@ -101,7 +103,8 @@ class FirestoreCollection {
     _streamController = BehaviorSubject();
     if (notifyWithEmptyList) _streamController.add(documents);
     // DrMakani: workaround to force refetch from server when calling restart
-    await nextPage(forceServer: true);
+    _forceServer = true;
+    await nextPage();
     collectionListener();
   }
 
@@ -130,17 +133,17 @@ class FirestoreCollection {
     onDocumentChanged?.call(document);
   }
 
-  Future<void> nextPage({bool forceServer = false}) async {
+  Future<void> nextPage() async {
     if (queryList?.isEmpty ?? true) {
-      await _nextPageInternal(query, forceServer: forceServer);
+      await _nextPageInternal(query);
       return;
     }
     for (var q in queryList) {
-      await _nextPageInternal(q, forceServer: forceServer);
+      await _nextPageInternal(q);
     }
   }
 
-  Future<void> _nextPageInternal(Query _q, {bool forceServer = false}) async {
+  Future<void> _nextPageInternal(Query _q) async {
     if (_fetching) {
       log('already fetching');
       return;
@@ -152,7 +155,7 @@ class FirestoreCollection {
     }
     _fetching = true;
     int fetchedCount = 0;
-    if (serverOnly || forceServer) {
+    if (serverOnly) {
       QuerySnapshot serverQS = await _q
           .where(queryOrder.orderField, isLessThan: _lastFetched())
           .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
@@ -165,59 +168,72 @@ class FirestoreCollection {
     } else {
       // DrMakani: check if next Page can be read out of cache (relevant only for non-live collections)
       // not very elegant yet because for every new page 1 additional read for comparison will be done
-      if (!live) {
-        QuerySnapshot tempQSLocalNext = await _q
+      if (!live && _forceServer) {
+        // TODO: neue Idee: so lange server seitig laden bis cache.first < lastfetched
+        QuerySnapshot serverQS = await _q
             .where(queryOrder.orderField, isLessThan: _lastFetched())
             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-            .limit(1)
-            .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-            .get(GetOptions(source: Source.cache));
-        log('******** last ID Local: ${tempQSLocalNext.docs.last.id}');
-        QuerySnapshot tempQSServerNext = await _q
-            .where(queryOrder.orderField, isLessThan: _lastFetched())
-            .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-            .limit(1)
+            .limit(offset)
             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
             .get(GetOptions(source: Source.server));
-        log('******** last ID Server: ${tempQSServerNext.docs.last.id}');
-        if (tempQSLocalNext.docs.last.id != tempQSServerNext.docs.last.id) {
-          QuerySnapshot serverQS = await _q
-              .where(queryOrder.orderField, isLessThan: _lastFetched())
-              .where(queryOrder.orderField,
-                  isGreaterThan: queryOrder?.lastValue)
-              .limit(offset)
-              .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-              .get(GetOptions(source: Source.server));
-          fetchedCount += serverQS.docs.length;
-          log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
-          insertPage(serverQS);
-        }
-        {
-          QuerySnapshot cacheQS = await _q
-              .where(queryOrder.orderField, isLessThan: _lastFetched())
-              .where(queryOrder.orderField,
-                  isGreaterThan: queryOrder?.lastValue)
-              .limit(offset)
-              .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-              .get(GetOptions(source: Source.cache));
-          fetchedCount += cacheQS.docs.length;
-          log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
-          insertPage(cacheQS);
+        fetchedCount += serverQS.docs.length;
+        log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
 
-          if (fetchedCount != offset) {
-            QuerySnapshot serverQS = await _q
-                .where(queryOrder.orderField, isLessThan: _lastFetched())
-                .where(queryOrder.orderField,
-                    isGreaterThan: queryOrder?.lastValue)
-                .limit(offset - fetchedCount)
-                .orderBy(queryOrder.orderField,
-                    descending: queryOrder.descending)
-                .get(GetOptions(source: Source.server));
-            fetchedCount += serverQS.docs.length;
-            log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
-            insertPage(serverQS);
-          }
+        if (_docs.first.data()[queryOrder.orderField] >
+            serverQS.docs.last.data()[queryOrder.orderField]) {
+          _forceServer = false;
         }
+        insertPage(serverQS);
+
+        // QuerySnapshot tempQSLocalNext = await _q
+        //     .where(queryOrder.orderField, isLessThan: _lastFetched())
+        //     .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+        //     .limit(1)
+        //     .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+        //     .get(GetOptions(source: Source.cache));
+        // log('******** last ID Local: ${tempQSLocalNext.docs.last.id}');
+        // QuerySnapshot tempQSServerNext = await _q
+        //     .where(queryOrder.orderField, isLessThan: _lastFetched())
+        //     .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+        //     .limit(1)
+        //     .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+        //     .get(GetOptions(source: Source.server));
+        // log('******** last ID Server: ${tempQSServerNext.docs.last.id}');
+        // if (tempQSLocalNext.docs.last.id != tempQSServerNext.docs.last.id) {
+        //   QuerySnapshot serverQS = await _q
+        //       .where(queryOrder.orderField, isLessThan: _lastFetched())
+        //       .where(queryOrder.orderField,
+        //           isGreaterThan: queryOrder?.lastValue)
+        //       .limit(offset)
+        //       .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+        //       .get(GetOptions(source: Source.server));
+        //   fetchedCount += serverQS.docs.length;
+        //   log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
+        //   insertPage(serverQS);
+        // }
+
+        // QuerySnapshot cacheQS = await _q
+        //     .where(queryOrder.orderField, isLessThan: _lastFetched())
+        //     .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+        //     .limit(offset)
+        //     .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+        //     .get(GetOptions(source: Source.cache));
+        // fetchedCount += cacheQS.docs.length;
+        // log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
+        // insertPage(cacheQS);
+
+        // if (fetchedCount != offset) {
+        //   QuerySnapshot serverQS = await _q
+        //       .where(queryOrder.orderField, isLessThan: _lastFetched())
+        //       .where(queryOrder.orderField,
+        //           isGreaterThan: queryOrder?.lastValue)
+        //       .limit(offset - fetchedCount)
+        //       .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+        //       .get(GetOptions(source: Source.server));
+        //   fetchedCount += serverQS.docs.length;
+        //   log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
+        //   insertPage(serverQS);
+        // }
       } else {
         // end DrMakani
         QuerySnapshot cacheQS = await _q
