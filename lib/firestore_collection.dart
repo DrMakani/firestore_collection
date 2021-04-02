@@ -64,7 +64,8 @@ class FirestoreCollection {
   bool _reachedEnd = false;
   bool get reachedEnd => _reachedEnd;
   // DrMakani: for correct pagination of non-live collections
-  bool _forceServer = false;
+  bool _restarting = false;
+  dynamic _newestFetchWhenRestarted;
 
   // documents
   List<DocumentSnapshot> _docs;
@@ -103,16 +104,14 @@ class FirestoreCollection {
     // _streamController = BehaviorSubject();
     if (notifyWithEmptyList) _streamController.add(documents);
     // DrMakani: workaround to force refetch from server when calling restart
-    _forceServer = true;
+    _restarting = true;
+    QuerySnapshot cacheQS = await query
+        .limit(1)
+        .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+        .get(GetOptions(source: Source.cache));
+    _newestFetchWhenRestarted = _newestFetched();
     await nextPage();
     collectionListener();
-  }
-
-  Future<void> reloadFirstPage() async {
-    _reachedEnd = false;
-    _endOfCollectionMap.clear();
-    _forceServer = true;
-    await _serverReloadFirstPage(query);
   }
 
   Future<void> dispose() async {
@@ -150,35 +149,6 @@ class FirestoreCollection {
     }
   }
 
-  Future<void> _serverReloadFirstPage(Query _q) async {
-    if (_fetching) {
-      log('already fetching');
-      return;
-    }
-    if (_endOfCollectionMap[_q.hashCode] ?? false) {
-      log('can not fetch anymore. end of the collection');
-      _reachedEnd = true;
-      return;
-    }
-    _fetching = true;
-    int fetchedCount = 0;
-
-    QuerySnapshot serverQS = await _q
-        .where(queryOrder.orderField,
-            isGreaterThan:
-                !_docs.isEmpty ? _docs.first.data()[queryOrder.orderField] : 0)
-        .limit(offset - fetchedCount)
-        .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        .get(GetOptions(source: Source.server));
-    fetchedCount += serverQS.docs.length;
-    log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [only-server]');
-    log('lastFetched: ${!_docs.isEmpty ? _docs.first.data()[queryOrder.orderField] : ""} ');
-    insertPage(serverQS);
-
-    _initialized = true;
-    _fetching = false;
-  }
-
   Future<void> _nextPageInternal(Query _q) async {
     if (_fetching) {
       log('already fetching');
@@ -203,44 +173,11 @@ class FirestoreCollection {
       insertPage(serverQS);
     } else {
       // DrMakani: check if next Page can be read out of cache (relevant only for non-live collections)
-      // not very elegant yet because for every new page 1 additional read for comparison will be done
-      if (!live && _forceServer) {
-//         // TODO: neue Idee: so lange server seitig laden bis cache.first < lastfetched
-//         QuerySnapshot cacheQS = await _q
-//             .where(queryOrder.orderField, isLessThan: _lastFetched())
-//             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-//             .limit(offset)
-//             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-//             .get(GetOptions(source: Source.cache));
-
-// TODO: neue idee: hier greater than und dnn das local neueste
-//         QuerySnapshot serverQS = await _q
-//             .where(queryOrder.orderField, isLessThan: _lastFetched())
-//             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-//             .limit(offset)
-//             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-//             .get(GetOptions(source: Source.server));
-//         fetchedCount += serverQS.docs.length;
-//         log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
-
-//         log('******** first Local timestamp: ${(!cacheQS?.docs?.isEmpty && cacheQS?.docs?.length > 0) ? cacheQS?.docs?.first?.data()[queryOrder.orderField] : "none"}');
-//         log('******** last Server timestamp: ${serverQS.docs.last.data()[queryOrder.orderField]}');
-
-//         if (serverQS?.docs?.length > 0 &&
-//             !cacheQS?.docs?.isEmpty &&
-//             cacheQS?.docs?.length > 0 &&
-//             cacheQS?.docs?.first?.data()[queryOrder.orderField] >=
-//                 serverQS.docs.last.data()[queryOrder.orderField]) {
-//           _forceServer = false;
-//         }
-//         insertPage(serverQS);
-        QuerySnapshot cacheQS = await _q
-            .limit(1)
-            .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-            .get(GetOptions(source: Source.cache));
-
+      if (!live && _restarting) {
         QuerySnapshot serverQS = await _q
-            .where(queryOrder.orderField, isGreaterThan: _newestFetched())
+            .where(queryOrder.orderField, isLessThan: _lastFetched())
+            .where(queryOrder.orderField,
+                isGreaterThan: _newestFetchWhenRestarted())
             .limit(offset)
             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
             .get(GetOptions(source: Source.server));
@@ -250,64 +187,20 @@ class FirestoreCollection {
 
         if (fetchedCount != offset) {
           QuerySnapshot cacheQS = await _q
+              .where(queryOrder.orderField, isLessThan: _lastFetched())
+              .where(queryOrder.orderField,
+                  isGreaterThan: queryOrder?.lastValue)
               .limit(offset - fetchedCount)
               .orderBy(queryOrder.orderField, descending: queryOrder.descending)
               .get(GetOptions(source: Source.cache));
           fetchedCount += cacheQS.docs.length;
           log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
           insertPage(cacheQS);
+          _restarting = false;
         }
-        // QuerySnapshot tempQSLocalNext = await _q
-        //     .where(queryOrder.orderField, isLessThan: _lastFetched())
-        //     .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-        //     .limit(1)
-        //     .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        //     .get(GetOptions(source: Source.cache));
-        // log('******** last ID Local: ${tempQSLocalNext.docs.last.id}');
-        // QuerySnapshot tempQSServerNext = await _q
-        //     .where(queryOrder.orderField, isLessThan: _lastFetched())
-        //     .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-        //     .limit(1)
-        //     .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        //     .get(GetOptions(source: Source.server));
-        // log('******** last ID Server: ${tempQSServerNext.docs.last.id}');
-        // if (tempQSLocalNext.docs.last.id != tempQSServerNext.docs.last.id) {
-        //   QuerySnapshot serverQS = await _q
-        //       .where(queryOrder.orderField, isLessThan: _lastFetched())
-        //       .where(queryOrder.orderField,
-        //           isGreaterThan: queryOrder?.lastValue)
-        //       .limit(offset)
-        //       .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        //       .get(GetOptions(source: Source.server));
-        //   fetchedCount += serverQS.docs.length;
-        //   log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
-        //   insertPage(serverQS);
-        // }
-
-        // QuerySnapshot cacheQS = await _q
-        //     .where(queryOrder.orderField, isLessThan: _lastFetched())
-        //     .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
-        //     .limit(offset)
-        //     .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        //     .get(GetOptions(source: Source.cache));
-        // fetchedCount += cacheQS.docs.length;
-        // log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
-        // insertPage(cacheQS);
-
-        // if (fetchedCount != offset) {
-        //   QuerySnapshot serverQS = await _q
-        //       .where(queryOrder.orderField, isLessThan: _lastFetched())
-        //       .where(queryOrder.orderField,
-        //           isGreaterThan: queryOrder?.lastValue)
-        //       .limit(offset - fetchedCount)
-        //       .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        //       .get(GetOptions(source: Source.server));
-        //   fetchedCount += serverQS.docs.length;
-        //   log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
-        //   insertPage(serverQS);
-        // }
-      } else {
         // end DrMakani
+
+      } else {
         QuerySnapshot cacheQS = await _q
             .where(queryOrder.orderField, isLessThan: _lastFetched())
             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
