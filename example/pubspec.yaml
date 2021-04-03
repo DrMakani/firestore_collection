@@ -24,6 +24,7 @@ dependencies:
   flutter:
     sdk: flutter
 
+  cloud_firestore: ^0.16.0
   firestore_collection:
     path: ../
 

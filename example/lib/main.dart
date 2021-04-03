@@ -43,6 +43,18 @@ class _HomePageState extends State<HomePage> {
   );
 
   @override
+  void initState() {
+    // TODO: Firebase Emulator only in specific situations!
+    // Switch host based on platform.
+    String host = 'localhost:8080'; // for android:  '10.0.2.2:8080'
+    // Set the host as soon as possible.
+    FirebaseFirestore.instance.settings =
+        Settings(host: host, sslEnabled: false);
+
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: FloatingActionButton(
