@@ -209,7 +209,7 @@ class FirestoreCollection {
       } else {
         // if the latest validated server value is less than the local: refetch from server
         if (_latestValidatedServerFetch == null ||
-            _lastFetched() < _latestValidatedServerFetch) {
+            _lastFetched() <= _latestValidatedServerFetch) {
           QuerySnapshot serverQS = await _q
               .where(queryOrder.orderField, isLessThan: _lastFetched())
               .where(queryOrder.orderField,
