@@ -328,7 +328,7 @@ class FirestoreCollection {
       log('desired removed index out of the bound');
       return;
     }
-    await removeOperationLocal(documents.elementAt(index).id);
+    await _removeOperation(documents.elementAt(index).id);
     DocumentSnapshot removed = documents.removeAt(index);
     if (queryOrder.hasDisplayCompare) {
       _docs.removeWhere((DocumentSnapshot doc) => doc.id == removed.id);
@@ -337,7 +337,7 @@ class FirestoreCollection {
   }
 
   Future<void> removeID(String documentID) async {
-    await removeOperationLocal(documentID);
+    await _removeOperation(documentID);
     _removeDoc(documentID);
   }
 
@@ -384,7 +384,7 @@ class FirestoreCollection {
     log('remove list complated');
   }
 
-  Future<void> removeOperationLocal(String documentID) async {
+  Future<void> _removeOperation(String documentID) async {
     if (fakeRemoveMap == null) {
       await collection.doc(documentID).delete();
     } else {
