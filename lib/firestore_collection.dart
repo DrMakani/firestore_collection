@@ -172,7 +172,7 @@ class FirestoreCollection {
           .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
           .limit(offset - fetchedCount)
           .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-          .get(GetOptions(source: Source.server));
+          .get(GetOptions(source: Source.serverAndCache));
       fetchedCount += serverQS.docs.length;
       log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [only-server]');
       insertPage(serverQS);
@@ -185,7 +185,7 @@ class FirestoreCollection {
                 isGreaterThan: _newestFetchWhenRestarted)
             .limit(offset)
             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-            .get(GetOptions(source: Source.server));
+            .get(GetOptions(source: Source.serverAndCache));
         fetchedCount += serverQS.docs.length;
         log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
         insertPage(serverQS);
@@ -217,7 +217,7 @@ class FirestoreCollection {
                   isGreaterThan: queryOrder?.lastValue)
               .limit(offset - fetchedCount)
               .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-              .get(GetOptions(source: Source.server));
+              .get(GetOptions(source: Source.serverAndCache));
           fetchedCount += serverQS.docs.length;
           log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
           insertPage(serverQS);
@@ -242,7 +242,7 @@ class FirestoreCollection {
                 .limit(offset - fetchedCount)
                 .orderBy(queryOrder.orderField,
                     descending: queryOrder.descending)
-                .get(GetOptions(source: Source.server));
+                .get(GetOptions(source: Source.serverAndCache));
             fetchedCount += serverQS.docs.length;
             log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
             insertPage(serverQS);
@@ -328,7 +328,7 @@ class FirestoreCollection {
       log('desired removed index out of the bound');
       return;
     }
-    await _removeOperation(documents.elementAt(index).id);
+    await removeOperationLocal(documents.elementAt(index).id);
     DocumentSnapshot removed = documents.removeAt(index);
     if (queryOrder.hasDisplayCompare) {
       _docs.removeWhere((DocumentSnapshot doc) => doc.id == removed.id);
@@ -337,7 +337,7 @@ class FirestoreCollection {
   }
 
   Future<void> removeID(String documentID) async {
-    await _removeOperation(documentID);
+    await removeOperationLocal(documentID);
     _removeDoc(documentID);
   }
 
@@ -384,7 +384,7 @@ class FirestoreCollection {
     log('remove list complated');
   }
 
-  Future<void> _removeOperation(String documentID) async {
+  Future<void> removeOperationLocal(String documentID) async {
     if (fakeRemoveMap == null) {
       await collection.doc(documentID).delete();
     } else {
@@ -405,7 +405,7 @@ class FirestoreCollection {
 
   Future<void> getFromCache(
     String documentID, {
-    source: Source.server,
+    source: Source.serverAndCache,
     Function(DocumentSnapshot) onGet,
   }) async {
     if (documentID == null || documentID == "") {
